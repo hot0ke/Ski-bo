@@ -1,0 +1,331 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Skip‑Bo — Multiplayer (Static/GitHub Pages)</title>
+  <style>
+    :root{--bg:#0b1220;--card:#0f1724;--accent:#6ee7b7;--muted:#9aa7b2;--card-white:#f8fafc}
+    html,body{height:100%;margin:0;background:linear-gradient(180deg,#020617 0%,#071021 60%);font-family:Inter,ui-sans-serif,system-ui,Segoe UI,Roboto,'Helvetica Neue',Arial}
+    .wrap{max-width:1100px;margin:24px auto;padding:18px;color:var(--card-white)}
+    header{display:flex;justify-content:space-between;align-items:center}
+    h1{margin:0;font-size:20px}
+    .panel{background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.04);padding:12px;border-radius:12px;margin-top:12px}
+    .controls{display:flex;gap:8px;flex-wrap:wrap}
+    input,button,select{padding:8px;border-radius:8px;border:1px solid rgba(255,255,255,0.06);background:transparent;color:var(--card-white)}
+    button{cursor:pointer}
+    .board{display:grid;grid-template-columns:1fr 420px;gap:12px;margin-top:14px}
+    .left{background:rgba(255,255,255,0.02);padding:12px;border-radius:12px}
+    .right{background:rgba(255,255,255,0.02);padding:12px;border-radius:12px}
+    .row{display:flex;gap:8px;align-items:center}
+    .pile{width:66px;height:92px;border-radius:8px;background:var(--card);display:flex;align-items:center;justify-content:center;font-weight:700}
+    .card{width:46px;height:70px;border-radius:6px;background:linear-gradient(180deg,#fff,#eee);display:flex;align-items:center;justify-content:center;color:#111;font-weight:700}
+    .hand{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px}
+    .players{margin-top:8px}
+    .log{height:180px;overflow:auto;background:rgba(0,0,0,0.2);padding:8px;border-radius:8px;margin-top:8px}
+    small{color:var(--muted)}
+    .notice{color:var(--accent);font-weight:700}
+    footer{margin-top:10px;font-size:13px;color:var(--muted)}
+    .big{font-size:18px}
+    .btn-ghost{background:transparent;border:1px dashed rgba(255,255,255,0.06)}
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <header>
+      <h1>Skip‑Bo — Multiplayer (static) — Demo</h1>
+      <div>
+        <small>Host on GitHub Pages · Uses Firebase Realtime Database (you provide config)</small>
+      </div>
+    </header>
+
+    <div class="panel">
+      <div class="controls">
+        <input id="name" placeholder="Your name" value="Player" />
+        <button id="create">Create Room</button>
+        <input id="roomCode" placeholder="Room code (6 chars)" />
+        <button id="join">Join Room</button>
+        <button id="leave" style="display:none">Leave Room</button>
+        <button id="debug" class="btn-ghost">Debug</button>
+      </div>
+      <div style="margin-top:8px"><small>To run: create a Firebase project, enable Realtime Database (test rules OK for prototyping), replace the firebaseConfig below in the code, then push this file to GitHub Pages.</small></div>
+    </div>
+
+    <div class="board">
+      <div class="left">
+        <div class="row">
+          <div>
+            <div class="big">Game</div>
+            <div id="status" class="notice">Not connected</div>
+          </div>
+        </div>
+
+        <div class="row" style="margin-top:12px;">
+          <div style="flex:1">
+            <div><small>Shared Build Piles</small></div>
+            <div id="buildPiles" class="row" style="margin-top:8px"></div>
+          </div>
+          <div style="width:220px">
+            <div><small>Your Hand</small></div>
+            <div id="hand" class="hand"></div>
+          </div>
+        </div>
+
+        <div style="margin-top:12px">
+          <div class="row">
+            <div style="flex:1">
+              <div><small>Your Stock Pile</small></div>
+              <div id="stock" class="pile" style="margin-top:8px">-</div>
+            </div>
+            <div style="width:200px">
+              <div><small>Discard Piles (up to 4)</small></div>
+              <div id="discards" class="row" style="margin-top:8px"></div>
+            </div>
+          </div>
+        </div>
+
+        <div style="margin-top:12px">
+          <div class="row">
+            <div><small>Draw pile</small></div>
+            <div id="drawPile" class="pile">0</div>
+            <div style="margin-left:12px"><button id="drawBtn">Draw</button></div>
+            <div style="margin-left:auto"><div><small>Turn: <span id="turnDisplay">-</span></small></div></div>
+          </div>
+        </div>
+
+        <div class="panel" style="margin-top:12px">
+          <div class="players"><small>Players in room</small><div id="playersList"></div></div>
+          <div class="log" id="log"></div>
+        </div>
+      </div>
+
+      <div class="right">
+        <div class="panel">
+          <div><small>Room Code</small></div>
+          <div id="roomLabel" class="big">—</div>
+          <div style="margin-top:8px"><button id="copyCode">Copy Link</button></div>
+        </div>
+
+        <div class="panel" style="margin-top:12px">
+          <div><small>Game Controls</small></div>
+          <div style="margin-top:8px;display:flex;gap:8px;flex-wrap:wrap">
+            <button id="startGame">Start Game</button>
+            <button id="endTurn">End Turn</button>
+            <button id="resetRoom" class="btn-ghost">Reset Room</button>
+          </div>
+        </div>
+
+        <div class="panel" style="margin-top:12px">
+          <div><small>Chat</small></div>
+          <div style="margin-top:8px;display:flex;gap:8px"><input id="chatText" placeholder="Say something"/><button id="sendChat">Send</button></div>
+        </div>
+
+        <footer>
+          <div><small>Notes:</small></div>
+          <ul>
+            <li><small>Replace Firebase config in the code and enable Realtime DB.</small></li>
+            <li><small>This is a lightweight Skip‑Bo ruleset (stock pile, shared build piles, draw, discard). Intended as a working prototype.</small></li>
+          </ul>
+        </footer>
+      </div>
+    </div>
+  </div>
+
+  <!-- Firebase SDK (compat for simplicity) -->
+  <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-database-compat.js"></script>
+
+  <script>
+  // ---------- IMPORTANT: Replace this firebaseConfig with your Firebase project's config ----------
+  const firebaseConfig = {
+    apiKey: "REPLACE_ME",
+    authDomain: "REPLACE_ME",
+    databaseURL: "REPLACE_ME", // e.g. https://your-project.firebaseio.com
+    projectId: "REPLACE_ME",
+    storageBucket: "REPLACE_ME",
+    messagingSenderId: "REPLACE_ME",
+    appId: "REPLACE_ME"
+  };
+  // --------------------------------------------------------------------------------------------------
+
+  // Initialize Firebase
+  firebase.initializeApp(firebaseConfig);
+  const db = firebase.database();
+
+  // Utilities
+  const el = id => document.getElementById(id);
+  const rnd = n => Math.floor(Math.random()*n);
+  const letters = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"; // exclude ambiguous
+  function makeCode(len=6){ let s=''; for(let i=0;i<len;i++) s+=letters[rnd(letters.length)]; return s }
+
+  // DOM
+  const nameInput = el('name');
+  const createBtn = el('create');
+  const joinBtn = el('join');
+  const leaveBtn = el('leave');
+  const roomCodeInput = el('roomCode');
+  const roomLabel = el('roomLabel');
+  const statusEl = el('status');
+  const playersList = el('playersList');
+  const handEl = el('hand');
+  const buildPilesEl = el('buildPiles');
+  const stockEl = el('stock');
+  const discardsEl = el('discards');
+  const drawPileEl = el('drawPile');
+  const drawBtn = el('drawBtn');
+  const logEl = el('log');
+  const startGameBtn = el('startGame');
+  const endTurnBtn = el('endTurn');
+  const resetRoomBtn = el('resetRoom');
+  const turnDisplay = el('turnDisplay');
+  const copyCodeBtn = el('copyCode');
+  const chatText = el('chatText');
+  const sendChatBtn = el('sendChat');
+  const debugBtn = el('debug');
+
+  // Game state local
+  let local = { name:'Player', id: null, room:null, playerIndex:null };
+  let roomRef = null;
+  let stateRef = null;
+  let unsub = null;
+
+  // Basic Skip‑Bo helper: cards 1..12 (we'll use 1..12 where 0 represents SKIP/ Wild if you want later)
+  function makeFullDeck(){ const deck=[]; // simpler deck: 2 copies of 1..12 * 6 -> ~144
+    for(let copies=0;copies<6;copies++){ for(let v=1;v<=12;v++) deck.push(v) }
+    return deck.sort(()=>Math.random()-0.5)
+  }
+
+  // ---------- Firebase helpers ----------
+  function createRoom(name){ const code = makeCode(6);
+    const ref = db.ref('rooms/'+code);
+    const initial = {
+      meta:{createdAt:Date.now(), code:code, started:false, turn:0, drawCount:0},
+      players:{},
+      state:{},
+      chat: {}
+    };
+    return ref.set(initial).then(()=>code);
+  }
+
+  function joinRoom(code, name){ roomRef = db.ref('rooms/'+code);
+    roomRef.once('value').then(snap=>{
+      if(!snap.exists()){ appendLog('Room not found'); return; }
+      const pRef = roomRef.child('players').push();
+      local.id = pRef.key; local.name = name;
+      pRef.set({name:name, joinedAt:Date.now(), ready:false}).then(()=>{
+        local.room = code; roomLabel.textContent = code; statusEl.textContent='Joined room'; leaveBtn.style.display='inline-block';
+        subscribeRoom();
+      })
+    })
+  }
+
+  function leaveRoom(){ if(!local.room) return; const pRef = db.ref('rooms/'+local.room+'/players/'+local.id);
+    pRef.remove(); if(unsub) unsub(); local = {name:'Player', id:null, room:null, playerIndex:null}; roomLabel.textContent='—'; statusEl.textContent='Not connected'; leaveBtn.style.display='none'; clearBoardUI(); }
+
+  function subscribeRoom(){ if(!local.room) return; stateRef = db.ref('rooms/'+local.room+'/state');
+    // watch players and meta
+    roomRef.on('value',snap=>{ const val = snap.val(); renderRoom(val) });
+    // chat
+    db.ref('rooms/'+local.room+'/chat').on('child_added',snap=>{ const c=snap.val(); appendLog(`[${new Date(c.t).toLocaleTimeString()}] ${c.name}: ${c.msg}`) });
+  }
+
+  function appendLog(t){ const node = document.createElement('div'); node.textContent = t; logEl.appendChild(node); logEl.scrollTop = logEl.scrollHeight }
+
+  // ---------- Game flow ----------
+  async function startGame(){ if(!local.room) return; const room = await roomRef.once('value').then(s=>s.val());
+    const players = room.players ? Object.keys(room.players).map(k=>({id:k, name:room.players[k].name})) : [];
+    if(players.length<2){ appendLog('Need at least 2 players to start'); return }
+    // create deck and deal: each player gets stock pile 30 cards (reduced to 10 for quicker demo), and 5-card hand
+    const deck = makeFullDeck();
+    const perStock = 10; const initialHand = 5;
+    const state = { build:[[],[],[],[]], draw:deck, meta:{}, players:{}, turnOrder:[] };
+    players.forEach((p,i)=>{ state.players[p.id]= { name:p.name, stock: deck.splice(0,perStock), hand: deck.splice(0,initialHand), discards:[[],[],[],[]] }; state.turnOrder.push(p.id) });
+    state.meta.currentPlayer = state.turnOrder[0]; state.meta.startedAt = Date.now();
+    await roomRef.child('state').set(state);
+    await roomRef.child('meta').update({started:true, turn:0});
+    appendLog('Game started');
+  }
+
+  function renderRoom(room){ if(!room) return; // update players list
+    playersList.innerHTML=''; const players = room.players || {};
+    Object.keys(players).forEach(k=>{ const d = players[k]; const node = document.createElement('div'); node.textContent = d.name + (k===local.id? ' (you)':''); playersList.appendChild(node) });
+    // render state
+    const state = room.state || {};
+    renderState(state);
+    // meta
+    if(room.meta){ turnDisplay.textContent = room.meta.turn === undefined ? '-' : room.meta.turn }
+  }
+
+  function renderState(state){ if(!state || !local.room) return; // build piles
+    buildPilesEl.innerHTML=''; const bp = state.build || [[],[],[],[]]; bp.forEach((pile,i)=>{ const node = document.createElement('div'); node.className='pile'; node.textContent = pile.length? pile[pile.length-1] : '-'; buildPilesEl.appendChild(node) });
+    // local player state
+    const me = state.players && local.id ? state.players[local.id] : null; handEl.innerHTML=''; discardsEl.innerHTML=''; if(me){ me.hand.forEach((c,idx)=>{ const cd=document.createElement('div'); cd.className='card'; cd.textContent=c; cd.onclick = ()=> playCardFromHand(c, idx); handEl.appendChild(cd) }); stockEl.textContent = me.stock.length; me.discards.forEach((d,idx)=>{ const pd=document.createElement('div'); pd.className='pile'; pd.textContent = d.length? d[d.length-1] : '-'; pd.onclick = ()=> playFromDiscard(idx); discardsEl.appendChild(pd) }) }
+    drawPileEl.textContent = (state.draw && state.draw.length) || 0;
+  }
+
+  // Play a card onto a build pile if valid (build piles need ascending 1..12)
+  async function playCard(value, from){ if(!local.room) return; const roomS = await roomRef.child('state').once('value').then(s=>s.val());
+    // try to place on first build pile that is valid (for demo simplicity choose first valid)
+    for(let i=0;i<4;i++){ const pile = roomS.build[i] || []; const top = pile.length? pile[pile.length-1] : 0;
+      if((top===0 && value===1) || (top>0 && value===top+1) || (top>=12 && value===1 && top===12)){
+        // push
+        roomRef.child('state/build/'+i).transaction(cur=>{ if(!cur) cur=[]; cur.push(value); return cur });
+        // remove from origin
+        if(from.type==='hand') roomRef.child('state/players/'+local.id+'/hand').transaction(arr=>{ if(!arr) return []; arr.splice(from.index,1); return arr });
+        if(from.type==='discard') roomRef.child('state/players/'+local.id+'/discards/'+from.index).transaction(arr=>{ if(!arr) return []; arr.pop(); return arr });
+        appendLog(`${local.name} played ${value} to build ${i+1}`);
+        return true;
+      }
+    }
+    appendLog('No valid build pile for that card'); return false;
+  }
+
+  function playCardFromHand(value,index){ playCard(value,{type:'hand', index}) }
+  function playFromDiscard(idx){ playCard( parseInt((document.getElementById('discards')?.children[idx]?.textContent)||0), {type:'discard', index:idx} ) }
+
+  // Draw a card (simple: draw up to 5 in hand)
+  function draw(){ if(!local.room) return; roomRef.child('state/draw').transaction(drawArr=>{ if(!drawArr || !drawArr.length) return drawArr; const card = drawArr.shift(); // pop first
+    // add card to player's hand
+    roomRef.child('state/players/'+local.id+'/hand').transaction(h=>{ if(!h) h=[]; h.push(card); return h });
+    appendLog(local.name + ' drew a card'); return drawArr }); }
+
+  // End turn rotates to next player
+  async function endTurn(){ if(!local.room) return; const metaSnap = await roomRef.child('meta').once('value').then(s=>s.val()); const turnIndex = metaSnap.turn || 0; const players = await roomRef.child('state/turnOrder').once('value').then(s=>s.val()) || [];
+    const nextIndex = (turnIndex+1) % players.length;
+    await roomRef.child('meta/turn').set(nextIndex);
+    appendLog(local.name + ' ended turn');
+  }
+
+  // Reset room (dangerous, admin-like)
+  function resetRoom(){ if(!local.room) return; if(!confirm('Reset room state?')) return; roomRef.child('state').remove(); roomRef.child('meta').set({started:false,turn:0}); appendLog('Room reset') }
+
+  // Chat
+  function sendChat(){ const txt = chatText.value.trim(); if(!txt||!local.room) return; const cRef = roomRef.child('chat').push(); cRef.set({name:local.name,msg:txt,t:Date.now()}); chatText.value=''; }
+
+  // UI wiring
+  createBtn.onclick = async ()=>{ const name = nameInput.value.trim()||'Host'; const code = makeCode(6); await createRoom(name); // createRoom currently creates new code different - so instead create and then join
+    // simplified: create with makeCode based value
+    const createdCode = await (async ()=>{ const code2=makeCode(6); const r = db.ref('rooms/'+code2); const initial = { meta:{createdAt:Date.now(), code:code2, started:false, turn:0, drawCount:0}, players:{}, state:{}, chat:{} }; await r.set(initial); return code2 })();
+    appendLog('Created room ' + createdCode);
+    joinRoom(createdCode, name);
+  };
+
+  joinBtn.onclick = ()=>{ const code = roomCodeInput.value.trim().toUpperCase(); if(!code) return alert('Enter code'); joinRoom(code, nameInput.value.trim()||'Player') };
+  leaveBtn.onclick = ()=> leaveRoom();
+  startGameBtn.onclick = ()=> startGame();
+  drawBtn.onclick = ()=> draw();
+  endTurnBtn.onclick = ()=> endTurn();
+  resetRoomBtn.onclick = ()=> resetRoom();
+  copyCodeBtn.onclick = ()=>{ if(!local.room) return; navigator.clipboard.writeText(location.href + '?room=' + local.room).then(()=> alert('Link copied')) };
+  sendChatBtn.onclick = ()=> sendChat();
+  debugBtn.onclick = ()=>{ alert('Local: ' + JSON.stringify(local)) };
+
+  // Auto-join from query param
+  (function(){ const params = new URLSearchParams(location.search); const r = params.get('room'); if(r) roomCodeInput.value = r.toUpperCase(); })();
+
+  // small helper to clear UI
+  function clearBoardUI(){ handEl.innerHTML=''; buildPilesEl.innerHTML=''; discardsEl.innerHTML=''; stockEl.textContent='-'; drawPileEl.textContent='0'; playersList.innerHTML=''; logEl.innerHTML=''; }
+
+  </script>
+</body>
+</html>
