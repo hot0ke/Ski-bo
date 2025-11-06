@@ -283,376 +283,358 @@
     <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-app-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-database-compat.js"></script>
 
-    <script>
-      // ---------- Firebase Init ----------
-      const firebaseConfig = {
-        apiKey: "AIzaSyBvd5RIe3sEA0Tz8cdbofNpClJbglpjQfQ",
-        authDomain: "ski-bo.firebaseapp.com",
-        databaseURL: "https://ski-bo-default-rtdb.firebaseio.com",
-        projectId: "ski-bo",
-        storageBucket: "ski-bo.appspot.com",
-        messagingSenderId: "764679395469",
-        appId: "1:764679395469:web:9bc6e0526408575ece6ac4",
+<script>
+  // ---------- Firebase Init ----------
+  const firebaseConfig = {
+    apiKey: "AIzaSyBvd5RIe3sEA0Tz8cdbofNpClJbglpjQfQ",
+    authDomain: "ski-bo.firebaseapp.com",
+    databaseURL: "https://ski-bo-default-rtdb.firebaseio.com",
+    projectId: "ski-bo",
+    storageBucket: "ski-bo.appspot.com",
+    messagingSenderId: "764679395469",
+    appId: "1:764679395469:web:9bc6e0526408575ece6ac4",
+  };
+  firebase.initializeApp(firebaseConfig);
+  const db = firebase.database();
+
+  // ---------- Helpers ----------
+  const el = (id) => document.getElementById(id);
+  const rnd = (n) => Math.floor(Math.random() * n);
+  const letters = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+  const makeCode = (len = 6) =>
+    Array.from({ length: len }, () => letters[rnd(letters.length)]).join("");
+
+  const nameInput = el("name");
+  const createBtn = el("create");
+  const joinBtn = el("join");
+  const leaveBtn = el("leave");
+  const roomCodeInput = el("roomCode");
+  const roomLabel = el("roomLabel");
+  const statusEl = el("status");
+  const playersList = el("playersList");
+  const handEl = el("hand");
+  const buildPilesEl = el("buildPiles");
+  const stockEl = el("stock");
+  const discardsEl = el("discards");
+  const drawPileEl = el("drawPile");
+  const drawBtn = el("drawBtn");
+  const logEl = el("log");
+  const startGameBtn = el("startGame");
+  const endTurnBtn = el("endTurn");
+  const resetRoomBtn = el("resetRoom");
+  const turnDisplay = el("turnDisplay");
+  const copyCodeBtn = el("copyCode");
+  const chatText = el("chatText");
+  const sendChatBtn = el("sendChat");
+  const debugBtn = el("debug");
+
+  let local = { name: "Player", id: null, room: null };
+  let roomRef = null;
+
+  function appendLog(msg) {
+    const node = document.createElement("div");
+    node.textContent = msg;
+    logEl.appendChild(node);
+    logEl.scrollTop = logEl.scrollHeight;
+  }
+
+  function makeFullDeck() {
+    const deck = [];
+    for (let c = 0; c < 6; c++) for (let v = 1; v <= 12; v++) deck.push(v);
+    return deck.sort(() => Math.random() - 0.5);
+  }
+
+  function clearBoardUI() {
+    handEl.innerHTML = "";
+    buildPilesEl.innerHTML = "";
+    discardsEl.innerHTML = "";
+    stockEl.innerHTML = "";
+    drawPileEl.textContent = "0";
+    playersList.innerHTML = "";
+    logEl.innerHTML = "";
+  }
+
+  // ---------- Room Logic ----------
+  async function createRoom(name) {
+    const code = makeCode(6);
+    const ref = db.ref("rooms/" + code);
+    const initial = {
+      meta: { createdAt: Date.now(), code, started: false, turn: 0, currentPlayer: null },
+      players: {},
+      state: {},
+      chat: {},
+    };
+    await ref.set(initial);
+    return code;
+  }
+
+  function joinRoom(code, name) {
+    roomRef = db.ref("rooms/" + code);
+    roomRef.once("value").then((snap) => {
+      if (!snap.exists()) return appendLog("Room not found");
+      const pRef = roomRef.child("players").push();
+      local.id = pRef.key;
+      local.name = name;
+      pRef.set({ name, joinedAt: Date.now(), ready: false }).then(() => {
+        local.room = code;
+        roomLabel.textContent = code;
+        statusEl.textContent = "Joined room";
+        leaveBtn.style.display = "inline-block";
+        subscribeRoom();
+      });
+    });
+  }
+
+  function leaveRoom() {
+    if (!local.room) return;
+    db.ref("rooms/" + local.room + "/players/" + local.id).remove();
+    if (roomRef) roomRef.off();
+    local = { name: "Player", id: null, room: null };
+    roomLabel.textContent = "—";
+    statusEl.textContent = "Not connected";
+    leaveBtn.style.display = "none";
+    clearBoardUI();
+  }
+
+  function subscribeRoom() {
+    if (!local.room) return;
+    roomRef.on("value", (snap) => renderRoom(snap.val()));
+    db.ref("rooms/" + local.room + "/chat").on("child_added", (snap) => {
+      const c = snap.val();
+      appendLog(`[${new Date(c.t).toLocaleTimeString()}] ${c.name}: ${c.msg}`);
+    });
+  }
+
+  function renderRoom(room) {
+    if (!room) return;
+    playersList.innerHTML = "";
+    const players = room.players || {};
+    Object.keys(players).forEach((k) => {
+      const div = document.createElement("div");
+      div.textContent = players[k].name + (k === local.id ? " (you)" : "");
+      if (room.meta.currentPlayer === k) div.style.fontWeight = "700";
+      playersList.appendChild(div);
+    });
+    renderState(room.state);
+    turnDisplay.textContent =
+      room.meta && room.meta.currentPlayer ? players[room.meta.currentPlayer]?.name || "-" : "-";
+  }
+
+  // ---------- Game Logic ----------
+  let selectedCard = null;
+
+  function renderState(state) {
+    if (!state || !local.room) return;
+    buildPilesEl.innerHTML = "";
+    const build = state.build || [[], [], [], []];
+    build.forEach((pile, idx) => {
+      const div = document.createElement("div");
+      div.className = "pile";
+      div.textContent = pile.length ? pile[pile.length - 1] : "-";
+      div.onclick = () => playOnBuild(idx);
+      buildPilesEl.appendChild(div);
+    });
+
+    const me = state.players[local.id];
+    handEl.innerHTML = "";
+    discardsEl.innerHTML = "";
+    stockEl.innerHTML = "";
+    if (me) {
+      // Hand
+      me.hand.forEach((c, i) => {
+        const card = document.createElement("div");
+        card.className = "card";
+        card.textContent = c;
+        if (selectedCard && selectedCard.from === "hand" && selectedCard.index === i)
+          card.style.border = "2px solid #6ee7b7";
+        card.onclick = () => selectCard("hand", i, c);
+        handEl.appendChild(card);
+      });
+      // Discards
+      me.discards.forEach((pile, i) => {
+        const div = document.createElement("div");
+        div.className = "pile";
+        div.textContent = pile.length ? pile[pile.length - 1] : "-";
+        div.onclick = () => playOnDiscard(i);
+        discardsEl.appendChild(div);
+      });
+      // Stock (4 piles)
+      for (let i = 0; i < 4; i++) {
+        const div = document.createElement("div");
+        div.className = "pile";
+        div.style.display = "inline-block";
+        div.style.marginRight = "4px";
+        div.textContent = me.stockPiles && me.stockPiles[i] && me.stockPiles[i].length
+          ? me.stockPiles[i][me.stockPiles[i].length - 1]
+          : "-";
+        div.onclick = () => playOnStock(i);
+        stockEl.appendChild(div);
+      }
+    }
+
+    drawPileEl.textContent = state.draw ? state.draw.length : 0;
+  }
+
+  function selectCard(from, index, value) {
+    selectedCard = { from, index, value };
+    appendLog(`Selected card ${value} from ${from}`);
+    roomRef.child("state").once("value").then((s) => renderState(s.val()));
+  }
+
+  async function playOnBuild(pileIndex) {
+    if (!selectedCard) return;
+    const state = await roomRef.child("state").once("value").then((s) => s.val());
+    const pile = state.build[pileIndex] || [];
+    const top = pile.length ? pile[pile.length - 1] : 0;
+    const val = selectedCard.value;
+
+    if ((top === 0 && val === 1) || (top > 0 && val === top + 1) || (top === 12 && val === 1)) {
+      await roomRef.child(`state/build/${pileIndex}`).transaction((p) => {
+        if (!p) p = [];
+        p.push(val);
+        return p;
+      });
+      removeCardFromOrigin();
+      appendLog(`${local.name} played ${val} to build pile ${pileIndex + 1}`);
+      selectedCard = null;
+    } else appendLog("Cannot play that card here");
+  }
+
+  async function playOnDiscard(pileIndex) {
+    if (!selectedCard) return;
+    await roomRef.child(`state/players/${local.id}/discards/${pileIndex}`).transaction((pile) => {
+      if (!pile) pile = [];
+      pile.push(selectedCard.value);
+      return pile;
+    });
+    removeCardFromOrigin();
+    appendLog(`${local.name} placed ${selectedCard.value} on discard pile ${pileIndex + 1}`);
+    selectedCard = null;
+  }
+
+  async function playOnStock(pileIndex) {
+    if (!selectedCard) return;
+    await roomRef.child(`state/players/${local.id}/stockPiles/${pileIndex}`).transaction((pile) => {
+      if (!pile) pile = [];
+      pile.push(selectedCard.value);
+      return pile;
+    });
+    removeCardFromOrigin();
+    appendLog(`${local.name} placed ${selectedCard.value} on stock pile ${pileIndex + 1}`);
+    selectedCard = null;
+  }
+
+  function removeCardFromOrigin() {
+    if (!selectedCard) return;
+    const pathBase = `state/players/${local.id}`;
+    if (selectedCard.from === "hand") {
+      roomRef.child(`${pathBase}/hand`).transaction((h) => {
+        h.splice(selectedCard.index, 1);
+        return h;
+      });
+    } else if (selectedCard.from === "discard") {
+      roomRef.child(`${pathBase}/discards/${selectedCard.index}`).transaction((d) => {
+        d.pop();
+        return d;
+      });
+    } else if (selectedCard.from === "stock") {
+      roomRef.child(`${pathBase}/stockPiles/${selectedCard.index}`).transaction((s) => {
+        s.pop();
+        return s;
+      });
+    }
+  }
+
+  // ---------- Existing functions ----------
+  function draw() {
+    if (!local.room) return;
+    roomRef.child(`state/players/${local.id}/hand`).transaction((hand) => {
+      if (!hand) hand = [];
+      roomRef.child("state/draw").transaction((drawArr) => {
+        while (hand.length < 5 && drawArr.length) hand.push(drawArr.shift());
+        return drawArr;
+      });
+      appendLog(local.name + " drew cards to 5");
+      return hand;
+    });
+  }
+
+  async function startGame() {
+    if (!local.room) return;
+    const room = await roomRef.once("value").then((s) => s.val());
+    const players = room.players ? Object.keys(room.players) : [];
+    if (players.length < 2) return appendLog("Need 2+ players");
+    const deck = makeFullDeck();
+    const perStock = 10, initialHand = 5;
+    const state = { build: [[], [], [], []], draw: deck, players: {}, turnOrder: players, meta: {} };
+    players.forEach((p) => {
+      state.players[p] = {
+        name: room.players[p].name,
+        stock: deck.splice(0, perStock),
+        hand: deck.splice(0, initialHand),
+        discards: [[], [], [], []],
+        stockPiles: [[], [], [], []]
       };
-      firebase.initializeApp(firebaseConfig);
-      const db = firebase.database();
+    });
+    state.meta = { currentPlayer: players[0], startedAt: Date.now() };
+    await roomRef.child("state").set(state);
+    await roomRef.child("meta").update({ started: true, turn: 0, currentPlayer: players[0] });
+    appendLog("Game started");
+  }
 
-      // ---------- Helpers ----------
-      const el = (id) => document.getElementById(id);
-      const rnd = (n) => Math.floor(Math.random() * n);
-      const letters = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
-      const makeCode = (len = 6) =>
-        Array.from({ length: len }, () => letters[rnd(letters.length)]).join(
-          ""
-        );
+  async function endTurn() {
+    if (!local.room) return;
+    const meta = await roomRef.child("meta").once("value").then((s) => s.val());
+    const state = await roomRef.child("state").once("value").then((s) => s.val());
+    const idx = meta.turn || 0;
+    const nextIdx = (idx + 1) % state.turnOrder.length;
+    await roomRef.child("meta").update({ turn: nextIdx, currentPlayer: state.turnOrder[nextIdx] });
+    appendLog(local.name + " ended turn");
+  }
 
-      const nameInput = el("name");
-      const createBtn = el("create");
-      const joinBtn = el("join");
-      const leaveBtn = el("leave");
-      const roomCodeInput = el("roomCode");
-      const roomLabel = el("roomLabel");
-      const statusEl = el("status");
-      const playersList = el("playersList");
-      const handEl = el("hand");
-      const buildPilesEl = el("buildPiles");
-      const stockEl = el("stock");
-      const discardsEl = el("discards");
-      const drawPileEl = el("drawPile");
-      const drawBtn = el("drawBtn");
-      const logEl = el("log");
-      const startGameBtn = el("startGame");
-      const endTurnBtn = el("endTurn");
-      const resetRoomBtn = el("resetRoom");
-      const turnDisplay = el("turnDisplay");
-      const copyCodeBtn = el("copyCode");
-      const chatText = el("chatText");
-      const sendChatBtn = el("sendChat");
-      const debugBtn = el("debug");
+  function resetRoom() {
+    if (!local.room) return;
+    if (!confirm("Reset room?")) return;
+    roomRef.child("state").remove();
+    roomRef.child("meta").set({ started: false, turn: 0 });
+    appendLog("Room reset");
+  }
 
-      let local = { name: "Player", id: null, room: null };
-      let roomRef = null;
+  function sendChat() {
+    if (!local.room) return;
+    const txt = chatText.value.trim();
+    if (!txt) return;
+    roomRef.child("chat").push().set({ name: local.name, msg: txt, t: Date.now() });
+    chatText.value = "";
+  }
 
-      function appendLog(msg) {
-        const node = document.createElement("div");
-        node.textContent = msg;
-        logEl.appendChild(node);
-        logEl.scrollTop = logEl.scrollHeight;
-      }
+  // ---------- UI Wiring ----------
+  createBtn.onclick = async () => {
+    const name = nameInput.value.trim() || "Host";
+    const code = await createRoom(name);
+    appendLog("Created room " + code);
+    joinRoom(code, name);
+  };
+  joinBtn.onclick = () => joinRoom(roomCodeInput.value.trim().toUpperCase(), nameInput.value.trim() || "Player");
+  leaveBtn.onclick = leaveRoom;
+  startGameBtn.onclick = startGame;
+  drawBtn.onclick = draw;
+  endTurnBtn.onclick = endTurn;
+  resetRoomBtn.onclick = resetRoom;
+  copyCodeBtn.onclick = () => {
+    if (!local.room) return;
+    navigator.clipboard.writeText(location.href + "?room=" + local.room).then(() => alert("Link copied"));
+  };
+  sendChatBtn.onclick = sendChat;
+  debugBtn.onclick = () => alert("Local: " + JSON.stringify(local));
 
-      function makeFullDeck() {
-        const deck = [];
-        for (let c = 0; c < 6; c++) for (let v = 1; v <= 12; v++) deck.push(v);
-        return deck.sort(() => Math.random() - 0.5);
-      }
+  // Auto-join from query
+  (function () {
+    const params = new URLSearchParams(location.search);
+    const r = params.get("room");
+    if (r) joinRoom(r.toUpperCase(), nameInput.value.trim() || "Player");
+  })();
+</script>
 
-      function clearBoardUI() {
-        handEl.innerHTML = "";
-        buildPilesEl.innerHTML = "";
-        discardsEl.innerHTML = "";
-        stockEl.textContent = "-";
-        drawPileEl.textContent = "0";
-        playersList.innerHTML = "";
-        logEl.innerHTML = "";
-      }
-
-      // ---------- Room Logic ----------
-      async function createRoom(name) {
-        const code = makeCode(6);
-        const ref = db.ref("rooms/" + code);
-        const initial = {
-          meta: {
-            createdAt: Date.now(),
-            code,
-            started: false,
-            turn: 0,
-            currentPlayer: null,
-          },
-          players: {},
-          state: {},
-          chat: {},
-        };
-        await ref.set(initial);
-        return code;
-      }
-
-      function joinRoom(code, name) {
-        roomRef = db.ref("rooms/" + code);
-        roomRef.once("value").then((snap) => {
-          if (!snap.exists()) {
-            appendLog("Room not found");
-            return;
-          }
-          const pRef = roomRef.child("players").push();
-          local.id = pRef.key;
-          local.name = name;
-          pRef.set({ name, joinedAt: Date.now(), ready: false }).then(() => {
-            local.room = code;
-            roomLabel.textContent = code;
-            statusEl.textContent = "Joined room";
-            leaveBtn.style.display = "inline-block";
-            subscribeRoom();
-          });
-        });
-      }
-
-      function leaveRoom() {
-        if (!local.room) return;
-        db.ref("rooms/" + local.room + "/players/" + local.id).remove();
-        if (roomRef) roomRef.off();
-        local = { name: "Player", id: null, room: null };
-        roomLabel.textContent = "—";
-        statusEl.textContent = "Not connected";
-        leaveBtn.style.display = "none";
-        clearBoardUI();
-      }
-
-      function subscribeRoom() {
-        if (!local.room) return;
-        roomRef.on("value", (snap) => {
-          renderRoom(snap.val());
-        });
-        db.ref("rooms/" + local.room + "/chat").on("child_added", (snap) => {
-          const c = snap.val();
-          appendLog(
-            `[${new Date(c.t).toLocaleTimeString()}] ${c.name}: ${c.msg}`
-          );
-        });
-      }
-
-      function renderRoom(room) {
-        if (!room) return;
-        // Players list
-        playersList.innerHTML = "";
-        const players = room.players || {};
-        Object.keys(players).forEach((k) => {
-          const div = document.createElement("div");
-          div.textContent = players[k].name + (k === local.id ? " (you)" : "");
-          if (room.meta.currentPlayer === k) div.style.fontWeight = "700";
-          playersList.appendChild(div);
-        });
-        // State
-        renderState(room.state);
-        // Turn
-        turnDisplay.textContent =
-          room.meta && room.meta.currentPlayer
-            ? players[room.meta.currentPlayer]?.name || "-"
-            : "-";
-      }
-
-      function renderState(state) {
-        if (!state || !local.room) return;
-        const build = state.build || [[], [], [], []];
-        buildPilesEl.innerHTML = "";
-        build.forEach((pile, idx) => {
-          const div = document.createElement("div");
-          div.className = "pile";
-          div.textContent = pile.length ? pile[pile.length - 1] : "-";
-          div.onclick = () => playSelectedCard(idx);
-          buildPilesEl.appendChild(div);
-        });
-
-        const me = state.players && local.id ? state.players[local.id] : null;
-        handEl.innerHTML = "";
-        discardsEl.innerHTML = "";
-        if (me) {
-          me.hand.forEach((c, i) => {
-            const card = document.createElement("div");
-            card.className = "card";
-            card.textContent = c;
-            card.onclick = () => selectCard("hand", i);
-            handEl.appendChild(card);
-          });
-          me.discards.forEach((d, i) => {
-            const pd = document.createElement("div");
-            pd.className = "pile";
-            pd.textContent = d.length ? d[d.length - 1] : "-";
-            pd.onclick = () => selectCard("discard", i);
-            discardsEl.appendChild(pd);
-          });
-          stockEl.textContent = me.stock.length;
-        }
-        drawPileEl.textContent = state.draw ? state.draw.length : 0;
-      }
-
-      // ---------- Game Logic ----------
-      let selectedCard = null;
-      function selectCard(type, index) {
-        selectedCard = { type, index };
-        appendLog(`Selected ${type} card at index ${index}`);
-      }
-
-      async function playSelectedCard(pileIndex) {
-        if (!selectedCard || !local.room) return;
-        const state = await roomRef
-          .child("state")
-          .once("value")
-          .then((s) => s.val());
-        const buildPile = state.build[pileIndex] || [];
-        let cardValue;
-        if (selectedCard.type === "hand")
-          cardValue = state.players[local.id].hand[selectedCard.index];
-        else
-          cardValue =
-            state.players[local.id].discards[selectedCard.index].slice(-1)[0];
-
-        const top = buildPile.length ? buildPile[buildPile.length - 1] : 0;
-        if (
-          (top === 0 && cardValue === 1) ||
-          (top > 0 && cardValue === top + 1) ||
-          (top === 12 && cardValue === 1)
-        ) {
-          // Update build pile
-          await roomRef.child("state/build/" + pileIndex).transaction((p) => {
-            if (!p) p = [];
-            p.push(cardValue);
-            return p;
-          });
-          // Remove from hand/discard
-          if (selectedCard.type === "hand") {
-            await roomRef
-              .child("state/players/" + local.id + "/hand")
-              .transaction((h) => {
-                h.splice(selectedCard.index, 1);
-                return h;
-              });
-          } else {
-            await roomRef
-              .child(
-                "state/players/" + local.id + "/discards/" + selectedCard.index
-              )
-              .transaction((d) => {
-                d.pop();
-                return d;
-              });
-          }
-          appendLog(
-            `${local.name} played ${cardValue} to build pile ${pileIndex + 1}`
-          );
-          selectedCard = null;
-        } else {
-          appendLog("Cannot play that card here");
-        }
-      }
-
-      function draw() {
-        if (!local.room) return;
-        roomRef
-          .child("state/players/" + local.id + "/hand")
-          .transaction((hand) => {
-            if (!hand) hand = [];
-            roomRef.child("state/draw").transaction((drawArr) => {
-              while (hand.length < 5 && drawArr.length)
-                hand.push(drawArr.shift());
-              return drawArr;
-            });
-            appendLog(local.name + " drew cards to 5");
-            return hand;
-          });
-      }
-
-      async function startGame() {
-        if (!local.room) return;
-        const room = await roomRef.once("value").then((s) => s.val());
-        const players = room.players ? Object.keys(room.players) : [];
-        if (players.length < 2) {
-          appendLog("Need 2+ players");
-          return;
-        }
-        const deck = makeFullDeck();
-        const perStock = 10,
-          initialHand = 5;
-        const state = {
-          build: [[], [], [], []],
-          draw: deck,
-          players: {},
-          turnOrder: players,
-        };
-        players.forEach((p) => {
-          state.players[p] = {
-            name: room.players[p].name,
-            stock: deck.splice(0, perStock),
-            hand: deck.splice(0, initialHand),
-            discards: [[], [], [], []],
-          };
-        });
-        state.meta = { currentPlayer: players[0], startedAt: Date.now() };
-        await roomRef.child("state").set(state);
-        await roomRef
-          .child("meta")
-          .update({ started: true, turn: 0, currentPlayer: players[0] });
-        appendLog("Game started");
-      }
-
-      async function endTurn() {
-        if (!local.room) return;
-        const meta = await roomRef
-          .child("meta")
-          .once("value")
-          .then((s) => s.val());
-        const state = await roomRef
-          .child("state")
-          .once("value")
-          .then((s) => s.val());
-        const idx = meta.turn || 0;
-        const nextIdx = (idx + 1) % state.turnOrder.length;
-        await roomRef
-          .child("meta")
-          .update({ turn: nextIdx, currentPlayer: state.turnOrder[nextIdx] });
-        appendLog(local.name + " ended turn");
-      }
-
-      function resetRoom() {
-        if (!local.room) return;
-        if (!confirm("Reset room?")) return;
-        roomRef.child("state").remove();
-        roomRef.child("meta").set({ started: false, turn: 0 });
-        appendLog("Room reset");
-      }
-
-      function sendChat() {
-        if (!local.room) return;
-        const txt = chatText.value.trim();
-        if (!txt) return;
-        roomRef
-          .child("chat")
-          .push()
-          .set({ name: local.name, msg: txt, t: Date.now() });
-        chatText.value = "";
-      }
-
-      // ---------- UI Wiring ----------
-      createBtn.onclick = async () => {
-        const name = nameInput.value.trim() || "Host";
-        const code = await createRoom(name);
-        appendLog("Created room " + code);
-        joinRoom(code, name);
-      };
-      joinBtn.onclick = () =>
-        joinRoom(
-          roomCodeInput.value.trim().toUpperCase(),
-          nameInput.value.trim() || "Player"
-        );
-      leaveBtn.onclick = leaveRoom;
-      startGameBtn.onclick = startGame;
-      drawBtn.onclick = draw;
-      endTurnBtn.onclick = endTurn;
-      resetRoomBtn.onclick = resetRoom;
-      copyCodeBtn.onclick = () => {
-        if (!local.room) return;
-        navigator.clipboard
-          .writeText(location.href + "?room=" + local.room)
-          .then(() => alert("Link copied"));
-      };
-      sendChatBtn.onclick = sendChat;
-      debugBtn.onclick = () => alert("Local: " + JSON.stringify(local));
-
-      // Auto-join from query
-      (function () {
-        const params = new URLSearchParams(location.search);
-        const r = params.get("room");
-        if (r) joinRoom(r.toUpperCase(), nameInput.value.trim() || "Player");
-      })();
-    </script>
   </body>
 </html>
